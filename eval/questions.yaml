@@ -1,0 +1,53 @@
+# Hand-written PT questions covering real tenant scenarios, each with the article(s)
+# that should ground a correct answer. Costs real Gemini calls to run -- see run_eval.py.
+- question: "Posso sair do contrato de aluguel antes do prazo combinado?"
+  expected_articles: ["4"]
+
+- question: "Qual a multa por rescisão antecipada do contrato de aluguel?"
+  expected_articles: ["4"]
+
+- question: "O locador pode exigir mais de uma garantia locatícia no mesmo contrato?"
+  expected_articles: ["37"]
+
+- question: "Quais são as obrigações do locatário durante a locação?"
+  expected_articles: ["23"]
+
+- question: "Quais são as obrigações do locador durante a locação?"
+  expected_articles: ["22"]
+
+- question: "Em quais hipóteses o locador pode retomar o imóvel por infração?"
+  expected_articles: ["9"]
+
+- question: "Morrendo o locador, o que acontece com o contrato de locação?"
+  expected_articles: ["10"]
+
+- question: "Morrendo o locatário, quem assume o contrato de locação?"
+  expected_articles: ["11"]
+
+- question: "O que é considerado crime relacionado à locação de imóveis?"
+  expected_articles: ["44"]
+
+- question: "O locatário tem direito de preferência na compra do imóvel alugado?"
+  expected_articles: ["27"]
+
+- question: "Quem paga por benfeitorias necessárias feitas no imóvel alugado?"
+  expected_articles: ["35"]
+
+- question: "O locatário pode sublocar o imóvel sem autorização do locador?"
+  expected_articles: ["13"]
+
+- question: "Como funciona o reajuste do valor do aluguel?"
+  expected_articles: ["18", "19"]
+
+- question: "O que acontece se o imóvel for vendido durante a locação?"
+  expected_articles: ["8"]
+
+- question: "Quais cláusulas contratuais de locação são consideradas nulas?"
+  expected_articles: ["45"]
+
+# Deliberately out-of-scope -- correctness here means refusal, not any citation.
+- question: "Qual a capital do Brasil?"
+  expected_articles: []
+
+- question: "Como faço para declarar imposto de renda?"
+  expected_articles: []

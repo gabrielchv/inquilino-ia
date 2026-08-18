@@ -1,0 +1,110 @@
+"""Fetch Lei 8.245/1991 from planalto.gov.br and chunk it into per-article JSON.
+
+planalto keeps every historical amendment inline as redlined text: an old wording
+struck through, sometimes several amendment layers deep, followed by the current
+wording. The `<strike>` tag marks some of it; later amendments use CSS
+`text-decoration:line-through` on a `<span>` instead. Both must be stripped before
+extracting text, or a chunk ends up holding revoked wording as if it were current
+law -- a citation-accuracy project cannot ship that mistake.
+"""
+
+import json
+import re
+import sys
+from pathlib import Path
+
+import requests
+from bs4 import BeautifulSoup
+
+SOURCE_URL = "https://www.planalto.gov.br/ccivil_03/leis/l8245.htm"
+OUTPUT_PATH = Path(__file__).parent / "lei_8245_chunks.json"
+
+ARTICLE_HEADER = re.compile(r"(?:^|\n)\s*Art\.?\s*(\d+)[ºo]?\s*[\.\-]?\s")
+CHAPTER_HEADING = re.compile(
+    r"(?:^|\n)\s*(TÍTULO [IVXLC]+|CAPÍTULO [IVXLC]+|SEÇÃO [IVXLC]+)\s*\n\s*(.+)"
+)
+END_OF_LAW_MARKER = re.compile(r"\nBrasília,")
+
+
+def fetch_html() -> str:
+    resp = requests.get(
+        SOURCE_URL,
+        headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64)"},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    resp.encoding = "latin-1"
+    return resp.text
+
+
+def strip_superseded_wording(soup: BeautifulSoup) -> None:
+    for tag in soup.find_all(["strike", "s", "del"]):
+        tag.decompose()
+    for tag in soup.find_all(style=re.compile(r"line-through")):
+        tag.decompose()
+    for sup in soup.find_all("sup"):
+        sup.replace_with("º")
+
+
+def extract_text(html: str) -> str:
+    soup = BeautifulSoup(html, "html.parser")
+    strip_superseded_wording(soup)
+    text = soup.get_text(separator="\n")
+    text = re.sub(r"[ \t\xa0]+", " ", text)
+    text = re.sub(r"\n\s*\n+", "\n", text)
+    return text
+
+
+def chapter_at(text: str, position: int) -> str | None:
+    heading = None
+    for match in CHAPTER_HEADING.finditer(text, 0, position):
+        heading = f"{match.group(1)} — {match.group(2).strip()}"
+    return heading
+
+
+def chunk_articles(text: str) -> list[dict]:
+    headers = list(ARTICLE_HEADER.finditer(text))
+    if not headers:
+        raise RuntimeError("no article headers found -- source page structure changed")
+
+    chunks = []
+    for i, header in enumerate(headers):
+        start = header.start()
+        end = headers[i + 1].start() if i + 1 < len(headers) else len(text)
+        body = text[start:end].strip()
+
+        end_marker = END_OF_LAW_MARKER.search(body)
+        if end_marker:
+            body = body[: end_marker.start()].strip()
+
+        body = re.sub(r"\s+", " ", body)
+        chunks.append(
+            {
+                "article_number": header.group(1),
+                "chapter": chapter_at(text, start),
+                "text": body,
+            }
+        )
+
+    numbers = [c["article_number"] for c in chunks]
+    if len(numbers) != len(set(numbers)):
+        raise RuntimeError(f"duplicate article numbers after parsing: {numbers}")
+
+    return chunks
+
+
+def main() -> None:
+    print(f"fetching {SOURCE_URL}", file=sys.stderr)
+    html = fetch_html()
+    text = extract_text(html)
+    chunks = chunk_articles(text)
+    print(f"parsed {len(chunks)} articles", file=sys.stderr)
+
+    OUTPUT_PATH.write_text(
+        json.dumps(chunks, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    print(f"wrote {OUTPUT_PATH}", file=sys.stderr)
+
+
+if __name__ == "__main__":
+    main()
