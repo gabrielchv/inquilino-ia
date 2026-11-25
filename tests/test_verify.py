@@ -53,3 +53,31 @@ async def test_article_number_formatting_does_not_defeat_lookup(raw):
         [{"artigo": raw, "trecho": "não poderá o locador reaver o imóvel alugado"}]
     )
     assert results[0].verified is True
+
+
+@pytest.mark.parametrize("trivial", ["o", "a", "Art. 4", ". ", "de", "4º", "  "])
+async def test_a_quote_too_short_to_carry_a_claim_is_not_verified(trivial):
+    # Every one of these is a substring of Article 4, so pure containment marked
+    # them "verified" and the UI showed a green check for a citation that says
+    # nothing. The badge is the product's central claim; a one-word quote must
+    # not earn it.
+    results = await verify_citations([{"artigo": "4", "trecho": trivial}])
+    assert results[0].verified is False, f"{trivial!r} should not verify"
+
+
+async def test_a_short_but_real_fragment_still_verifies():
+    # The floor is a word count, not a character count: four words of the actual
+    # statute is a legitimate quote even though it is brief.
+    results = await verify_citations(
+        [{"artigo": "4", "trecho": "não poderá o locador reaver"}]
+    )
+    assert results[0].verified is True
+
+
+async def test_a_fabricated_rule_still_fails_even_when_long():
+    # Length must not be a way to buy a pass: four-plus words that the statute
+    # does not contain still fail.
+    results = await verify_citations(
+        [{"artigo": "4", "trecho": "o locador pode reter integralmente o valor da fiança"}]
+    )
+    assert results[0].verified is False
