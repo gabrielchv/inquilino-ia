@@ -14,6 +14,24 @@ REFUSAL_SENTENCE = (
     "Não encontrei fundamento na Lei do Inquilinato para responder a essa pergunta."
 )
 
+
+def is_refusal(answer: str) -> bool:
+    """Whether an answer is the refusal the prompt asks for.
+
+    A normalized prefix match, not equality. The model frequently appends one
+    polite sentence — "Se tiver outra dúvida, é só perguntar." — and exact
+    equality then reads a correct refusal as a grounded answer. The cost is not
+    only a wrong label: `refused=False` triggers a third Gemini call to extract
+    citations from text that cited nothing, on every refusal the model dresses up.
+
+    The refusal is how the answer opens; courtesy after it is not a change of
+    mind. Shared with `eval/run_eval.py` so the product and the thing that scores
+    it cannot disagree about what a refusal is.
+    """
+    collapsed = " ".join(answer.split()).casefold()
+    refusal = " ".join(REFUSAL_SENTENCE.split()).casefold()
+    return collapsed.startswith(refusal)
+
 ANSWER_SYSTEM_PROMPT = f"""\
 Você é um assistente que responde exclusivamente com base nos artigos da Lei do \
 Inquilinato (Lei 8.245/1991) fornecidos abaixo. Nunca use conhecimento próprio sobre \
@@ -89,7 +107,7 @@ async def _chat_stream(question: str):
         yield _sse("delta", {"text": delta})
 
     answer = "".join(answer_parts).strip()
-    refused = answer == REFUSAL_SENTENCE
+    refused = is_refusal(answer)
 
     citations = []
     if not refused:

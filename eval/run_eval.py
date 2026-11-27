@@ -15,28 +15,14 @@ from app.chat import (
     ANSWER_SYSTEM_PROMPT,
     CITATION_SYSTEM_PROMPT,
     CITATIONS_SCHEMA,
-    REFUSAL_SENTENCE,
     _articles_block,
+    is_refusal,
 )
 from app.gemini_client import generate_json
 from app.retrieval import retrieve
 from app.verify import _normalize_article_number, verify_citations
 
 QUESTIONS_PATH = Path(__file__).parent / "questions.yaml"
-
-
-def _is_refusal(answer: str) -> bool:
-    """Whether an answer is a refusal.
-
-    The previous check was `answer == REFUSAL_SENTENCE`, exact string equality. A
-    model that refuses correctly and then adds one polite sentence was scored as a
-    grounded answer that failed the case, and in the out-of-scope direction it was
-    scored as "did not refuse". The refusal is the opening of the answer; anything
-    the model adds after it is courtesy, not a change of mind.
-    """
-    collapsed = " ".join(answer.split()).casefold()
-    refusal = " ".join(REFUSAL_SENTENCE.split()).casefold()
-    return collapsed.startswith(refusal)
 
 
 async def _run_one(case: dict) -> tuple[bool, str]:
@@ -56,11 +42,11 @@ async def _run_one(case: dict) -> tuple[bool, str]:
     answer = "".join(answer_parts).strip()
 
     if not expected:
-        passed = _is_refusal(answer)
+        passed = is_refusal(answer)
         detail = "refused correctly" if passed else f"expected refusal, got: {answer[:80]}"
         return passed, detail
 
-    if _is_refusal(answer):
+    if is_refusal(answer):
         return False, "refused, but a grounded answer was expected"
 
     extraction = await generate_json(

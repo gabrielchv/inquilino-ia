@@ -76,3 +76,48 @@ async def test_chat_refuses_out_of_scope_question(client, monkeypatch):
 
     assert '"refused": true' in body
     assert '"citations": []' in body
+
+
+# --- a refusal is how the answer opens, not the whole of it -----------------
+
+
+async def test_a_dressed_up_refusal_is_still_a_refusal(client, monkeypatch):
+    """The model usually adds a polite sentence after refusing.
+
+    Exact equality read that as a grounded answer: the UI showed a non-refusal and
+    the route made a third Gemini call to extract citations from text that cited
+    nothing.
+    """
+
+    async def fake_generate_stream(system_prompt, user_prompt):
+        yield REFUSAL_SENTENCE
+        yield " Se tiver outra dúvida, é só perguntar."
+
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("citation extraction must not run on a refusal")
+
+    monkeypatch.setattr(chat_module, "generate_stream", fake_generate_stream)
+    monkeypatch.setattr(chat_module, "generate_json", fail_if_called)
+
+    async with (
+        client as c,
+        c.stream("POST", "/api/chat", json={"question": "qual a capital do Brasil?"}) as resp,
+    ):
+        body = ""
+        async for chunk in resp.aiter_text():
+            body += chunk
+
+    assert '"refused": true' in body
+    assert '"citations": []' in body
+
+
+async def test_a_grounded_answer_is_not_read_as_a_refusal(client):
+    async with (
+        client as c,
+        c.stream("POST", "/api/chat", json={"question": "Posso sair antes do prazo?"}) as resp,
+    ):
+        body = ""
+        async for chunk in resp.aiter_text():
+            body += chunk
+
+    assert '"refused": false' in body
