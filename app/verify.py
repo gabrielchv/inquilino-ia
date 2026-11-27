@@ -30,11 +30,22 @@ def _normalize(text: str) -> str:
 
 
 def _normalize_article_number(raw: str) -> str:
-    """The model doesn't reliably follow "digits only" formatting instructions --
-    it returns "Art. 4", "4º", "artigo 4" interchangeably. Extract the digits so the
-    DB lookup (which stores bare numbers) isn't silently defeated by phrasing."""
-    match = re.search(r"\d+", raw)
-    return match.group(0) if match else raw
+    r"""The bare article reference, keeping a lettered suffix.
+
+The model doesn't reliably follow "digits only" formatting instructions -- it
+returns "Art. 4", "4º", "artigo 4" interchangeably. Extract the digits so the DB
+lookup (which stores bare numbers) isn't silently defeated by phrasing.
+
+A lettered article must keep its letter. `re.search(r"\d+")` turned "Art. 54-A"
+into "54", so a citation to 54-A was looked up against Article 54 and certified
+against the wrong text — a cross-article false positive in the one check that is
+supposed to be exact.
+"""
+    match = re.search(r"(\d+)\s*(?:[-–]\s*([A-Za-z]))?", raw)
+    if not match:
+        return raw
+    number, letter = match.group(1), match.group(2)
+    return f"{number}-{letter.upper()}" if letter else number
 
 
 @dataclass

@@ -19,7 +19,20 @@ from bs4 import BeautifulSoup
 SOURCE_URL = "https://www.planalto.gov.br/ccivil_03/leis/l8245.htm"
 OUTPUT_PATH = Path(__file__).parent / "lei_8245_chunks.json"
 
-ARTICLE_HEADER = re.compile(r"(?:^|\n)\s*Art\.?\s*(\d+)[ºo]?\s*[\.\-]?\s")
+ARTICLE_HEADER = re.compile(
+    r"(?:^|\n)\s*Art\.?\s*(\d+)\s*[ºo]?\s*(?:[-–]\s*([A-Za-z]))?"
+)
+r"""Matches `Art. 1º` and lettered articles such as `Art. 54-A`.
+
+The previous pattern ended in `\s*[\.\-]?\s`, which required whitespace after
+an optional dot or hyphen. `Art. 54-A` has a letter there, so no header matched:
+the whole of 54-A was absorbed into the Article 54 chunk, no chunk keyed `54-A`
+existed, and a citation to 54-A was silently certified against Article 54.
+
+The letter is only accepted after a hyphen. A bare `\s*([A-Za-z])?` would read
+the first letter of the following word as an article suffix — `Art. 4 Durante`
+would become article `4-D`.
+"""
 CHAPTER_HEADING = re.compile(
     r"(?:^|\n)\s*(TÍTULO [IVXLC]+|CAPÍTULO [IVXLC]+|SEÇÃO [IVXLC]+)\s*\n\s*(.+)"
 )
@@ -62,6 +75,12 @@ def chapter_at(text: str, position: int) -> str | None:
     return heading
 
 
+def article_id(match: re.Match[str]) -> str:
+    """The id a header match contributes: `4`, or `54-A` when lettered."""
+    number, letter = match.group(1), match.group(2)
+    return f"{number}-{letter.upper()}" if letter else number
+
+
 def chunk_articles(text: str) -> list[dict]:
     headers = list(ARTICLE_HEADER.finditer(text))
     if not headers:
@@ -80,7 +99,7 @@ def chunk_articles(text: str) -> list[dict]:
         body = re.sub(r"\s+", " ", body)
         chunks.append(
             {
-                "article_number": header.group(1),
+                "article_number": article_id(header),
                 "chapter": chapter_at(text, start),
                 "text": body,
             }

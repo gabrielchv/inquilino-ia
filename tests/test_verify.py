@@ -81,3 +81,47 @@ async def test_a_fabricated_rule_still_fails_even_when_long():
         [{"artigo": "4", "trecho": "o locador pode reter integralmente o valor da fiança"}]
     )
     assert results[0].verified is False
+
+
+def test_lettered_article_keeps_its_letter():
+    r"""`Art. 54-A` is not article 54.
+
+    `re.search(r"\d+")` took the first digit run, so 54-A became 54 and a
+    citation about 54-A was looked up against Article 54 and certified against
+    the wrong text.
+    """
+    from app.verify import _normalize_article_number
+
+    assert _normalize_article_number("Art. 54-A") == "54-A"
+    assert _normalize_article_number("54-A") == "54-A"
+    assert _normalize_article_number("artigo 54-a") == "54-A"
+    assert _normalize_article_number("Art. 33-A.") == "33-A"
+
+
+def test_plain_article_number_still_normalizes():
+    from app.verify import _normalize_article_number
+
+    for spelling in ("Art. 4º", "4º", "4.", "artigo 4", "Art. 4"):
+        assert _normalize_article_number(spelling) == "4", spelling
+
+
+async def test_a_lettered_article_is_not_certified_against_its_base_article(monkeypatch):
+    """The cross-article false positive, closed.
+
+    A citation naming 54-A must not be verified using Article 54's text. When the
+    corpus has no 54-A chunk — which it does not, until it is re-ingested — the
+    honest answer is "source not found", not a green check against 54.
+    """
+
+    async def fake_fetch(article_number):
+        return ARTICLE_4_TEXT if article_number == "4" else None
+
+    monkeypatch.setattr(verify_module, "fetch_article_text", fake_fetch)
+
+    results = await verify_citations(
+        [{"artigo": "4-A", "trecho": "não poderá o locador reaver o imóvel alugado"}]
+    )
+
+    assert results[0].article_number == "4-A"
+    assert results[0].article_text is None
+    assert results[0].verified is False

@@ -62,3 +62,41 @@ def test_trims_signature_block_from_last_article():
     art3 = next(c for c in chunks if c["article_number"] == "3")
     assert "Brasília" not in art3["text"]
     assert "FERNANDO COLLOR" not in art3["text"]
+
+
+# A lettered article is its own article. The header pattern used to require
+# whitespace after an optional dot or hyphen, so `Art. 54-A` matched nothing and
+# the whole of 54-A was absorbed into the Article 54 chunk.
+LETTERED_HTML = """
+<html><body>
+<p>Art. 54º Texto do artigo cinquenta e quatro.</p>
+<p>Art. 54-A. Texto do artigo cinquenta e quatro A, que veio depois.</p>
+<p>Art. 55. Texto do artigo cinquenta e cinco.</p>
+<p>Brasília, 18 de outubro de 1991.</p>
+</body></html>
+"""
+
+
+def test_lettered_article_gets_its_own_chunk():
+    chunks = chunk_articles(extract_text(LETTERED_HTML))
+    numbers = [c["article_number"] for c in chunks]
+
+    assert numbers == ["54", "54-A", "55"]
+
+
+def test_lettered_article_text_is_not_in_its_base_article():
+    chunks = chunk_articles(extract_text(LETTERED_HTML))
+    art54 = next(c for c in chunks if c["article_number"] == "54")
+    art54a = next(c for c in chunks if c["article_number"] == "54-A")
+
+    assert "cinquenta e quatro A" not in art54["text"]
+    assert "cinquenta e quatro A" in art54a["text"]
+
+
+def test_a_plain_article_followed_by_a_word_does_not_gain_a_suffix():
+    # `Art. 4 Durante` must be article 4, not article 4-D. A bare optional letter
+    # in the pattern would read the next word's first letter as a suffix.
+    html = "<html><body><p>Art. 4 Durante o prazo, texto.</p></body></html>"
+    chunks = chunk_articles(extract_text(html))
+
+    assert [c["article_number"] for c in chunks] == ["4"]
