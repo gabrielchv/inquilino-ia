@@ -11,17 +11,37 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from app.chat import ANSWER_SYSTEM_PROMPT, CITATIONS_SCHEMA, CITATION_SYSTEM_PROMPT  # noqa: E402
-from app.chat import REFUSAL_SENTENCE, _articles_block  # noqa: E402
-from app.gemini_client import generate_json  # noqa: E402
-from app.retrieval import retrieve  # noqa: E402
+from app.chat import (
+    ANSWER_SYSTEM_PROMPT,
+    CITATION_SYSTEM_PROMPT,
+    CITATIONS_SCHEMA,
+    REFUSAL_SENTENCE,
+    _articles_block,
+)
+from app.gemini_client import generate_json
+from app.retrieval import retrieve
+from app.verify import _normalize_article_number, verify_citations
 
 QUESTIONS_PATH = Path(__file__).parent / "questions.yaml"
 
 
+def _is_refusal(answer: str) -> bool:
+    """Whether an answer is a refusal.
+
+    The previous check was `answer == REFUSAL_SENTENCE`, exact string equality. A
+    model that refuses correctly and then adds one polite sentence was scored as a
+    grounded answer that failed the case, and in the out-of-scope direction it was
+    scored as "did not refuse". The refusal is the opening of the answer; anything
+    the model adds after it is courtesy, not a change of mind.
+    """
+    collapsed = " ".join(answer.split()).casefold()
+    refusal = " ".join(REFUSAL_SENTENCE.split()).casefold()
+    return collapsed.startswith(refusal)
+
+
 async def _run_one(case: dict) -> tuple[bool, str]:
     question = case["question"]
-    expected = set(case["expected_articles"])
+    expected = {_normalize_article_number(a) for a in case["expected_articles"]}
 
     chunks = await retrieve(question)
     articles_block = _articles_block(chunks)
@@ -36,11 +56,11 @@ async def _run_one(case: dict) -> tuple[bool, str]:
     answer = "".join(answer_parts).strip()
 
     if not expected:
-        passed = answer == REFUSAL_SENTENCE
+        passed = _is_refusal(answer)
         detail = "refused correctly" if passed else f"expected refusal, got: {answer[:80]}"
         return passed, detail
 
-    if answer == REFUSAL_SENTENCE:
+    if _is_refusal(answer):
         return False, "refused, but a grounded answer was expected"
 
     extraction = await generate_json(
@@ -48,10 +68,31 @@ async def _run_one(case: dict) -> tuple[bool, str]:
         f"Pergunta: {question}\n\nResposta: {answer}\n\nArtigos:\n{articles_block}",
         CITATIONS_SCHEMA,
     )
-    cited = {c["artigo"] for c in extraction.get("citacoes", [])}
-    passed = bool(cited & expected)
-    detail = f"expected {expected}, got {cited}"
-    return passed, detail
+    raw_citations = extraction.get("citacoes", [])
+
+    # Normalize before comparing sets. A model that writes "Art. 4º" is citing
+    # article 4, and the old comparison against a bare "4" scored that correct
+    # citation as a miss.
+    cited = {_normalize_article_number(c.get("artigo", "")) for c in raw_citations}
+
+    # The product's claim is that a citation's quote is checked against the
+    # statute. This function scored only whether the article number appeared in
+    # the expected set, and never called `verify_citations` -- so a response could
+    # cite the right article with a completely invented quote and score a clean
+    # pass. The eval then could not detect a regression in the one property the
+    # project sells.
+    verified = await verify_citations(raw_citations)
+    unverified = [c for c in verified if not c.verified]
+
+    hits = cited & expected
+    if not hits:
+        return False, f"expected {sorted(expected)}, got {sorted(cited)}"
+    if unverified:
+        return False, (
+            f"{len(unverified)} of {len(verified)} citation(s) failed verification: "
+            + "; ".join(f"art. {c.article_number} quote {c.quote[:40]!r}" for c in unverified)
+        )
+    return True, f"expected {sorted(expected)}, got {sorted(cited)}, all quotes verified"
 
 
 async def main() -> None:
