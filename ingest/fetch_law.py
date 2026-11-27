@@ -59,13 +59,31 @@ def strip_superseded_wording(soup: BeautifulSoup) -> None:
         sup.replace_with("º")
 
 
+def join_broken_hyphens(text: str) -> str:
+    """Reattach a hyphen that planalto splits from the word it belongs to.
+
+    The statute writes `transmite-se` as `transmite<b>-</b>se`. `get_text` with
+    `separator="\n"` puts a newline between *every* text node, so the hyphen
+    arrives isolated on its own line: `transmite\n-\nse`. Collapsing whitespace
+    then gives `transmite - se`, which is not the law — it fails to verify a model
+    quoting the real spelling, and ships corrupted text to the UI as the
+    authoritative article.
+
+    The pattern is deliberately narrow: a hyphen alone on its line, with a word
+    character on each side *across a newline*. A genuine spaced dash inside a
+    paragraph is a single text node, so it never produces this shape — `Art. 1º -
+    Texto` comes through as one string and is left alone.
+    """
+    return re.sub(r"(?<=\w)\s*\n\s*-\s*\n\s*(?=\w)", "-", text)
+
+
 def extract_text(html: str) -> str:
     soup = BeautifulSoup(html, "html.parser")
     strip_superseded_wording(soup)
     text = soup.get_text(separator="\n")
     text = re.sub(r"[ \t\xa0]+", " ", text)
     text = re.sub(r"\n\s*\n+", "\n", text)
-    return text
+    return join_broken_hyphens(text)
 
 
 def chapter_at(text: str, position: int) -> str | None:
